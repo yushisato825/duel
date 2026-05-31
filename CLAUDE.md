@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## ビルドと実行
 
 ```bash
-go build -o term-diff .
-./term-diff <file1> <file2>
-git diff | ./term-diff
+go build -o duel .
+./duel <file1> <file2>
+git diff | ./duel
 ```
 
 ## アーキテクチャ

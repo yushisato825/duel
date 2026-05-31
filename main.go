@@ -689,8 +689,8 @@ func main() {
 		editable = true
 	} else {
 		fmt.Fprintln(os.Stderr, "使い方:")
-		fmt.Fprintln(os.Stderr, "  term-diff <file1> <file2>")
-		fmt.Fprintln(os.Stderr, "  git diff | term-diff")
+		fmt.Fprintln(os.Stderr, "  duel <file1> <file2>")
+		fmt.Fprintln(os.Stderr, "  git diff | duel")
 		os.Exit(1)
 	}
 
