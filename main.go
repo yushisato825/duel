@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	runewidth "github.com/mattn/go-runewidth"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -29,6 +30,9 @@ var (
 	scrollStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	helpStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	dividerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
+	fileHeaderStyle     = lipgloss.NewStyle().Background(lipgloss.Color("239")).Foreground(lipgloss.Color("255")).Bold(true)
+	fileHeaderRuleStyle = lipgloss.NewStyle().Background(lipgloss.Color("239")).Foreground(lipgloss.Color("241"))
+	collapsedStyle      = lipgloss.NewStyle().Background(lipgloss.Color("235")).Foreground(lipgloss.Color("244"))
 	statusOkStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 	statusErrStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 	gutterEq           = lipgloss.NewStyle().Foreground(lipgloss.Color("237")).Render("│")
@@ -41,20 +45,25 @@ var (
 type lineKind int
 
 const (
-	kindEqual   lineKind = iota
-	kindChanged          // 削除行(左) + 追加行(右) のペア
-	kindRemoved          // 削除のみ（追加より多い分）
-	kindAdded            // 追加のみ（削除より多い分）
-	kindPad              // 行数を揃えるためのパディング行
+	kindEqual      lineKind = iota
+	kindChanged             // 削除行(左) + 追加行(右) のペア
+	kindRemoved             // 削除のみ（追加より多い分）
+	kindAdded               // 追加のみ（削除より多い分）
+	kindPad                 // 行数を揃えるためのパディング行
+	kindFileHeader          // ファイル区切り行
+	kindCollapsed           // 折りたたまれた等号行群
 )
 
+const diffContext = 3 // 差分前後に表示するコンテキスト行数
+
 type diffLine struct {
-	left     string
-	right    string
-	leftNum  int
-	rightNum int
-	kind     lineKind
-	padSide  int // kindPad のとき: -1=左がパディング, 1=右がパディング
+	left           string
+	right          string
+	leftNum        int
+	rightNum       int
+	kind           lineKind
+	padSide        int        // kindPad のとき: -1=左がパディング, 1=右がパディング
+	collapsedLines []diffLine // kindCollapsed のとき: 折りたたまれた行
 }
 
 // --- Teaメッセージ ---
@@ -97,7 +106,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case diffUpdatedMsg:
-		m.lines = msg.lines
+		m.lines = foldLines(msg.lines, diffContext)
 		m.diffBlocks = msg.diffBlocks
 		m.offset = clamp(m.offset, 0, max(0, len(m.lines)-m.visibleLines()))
 		m.status = "適用しました"
@@ -134,6 +143,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.hOffset = max(0, m.hOffset-4)
 		case "0":
 			m.hOffset = 0
+		case "e":
+			m.lines = expandCollapsed(m.lines, m.offset)
+			m.offset = clamp(m.offset, 0, max(0, len(m.lines)-m.visibleLines()))
 		case ">":
 			if m.editable {
 				return m, applyChange(m, 1) // 左→右
@@ -169,7 +181,26 @@ func (m model) View() string {
 	var rows []string
 	for i, dl := range m.lines[m.offset:end] {
 		absIdx := m.offset + i
-		isBlockStart := absIdx == 0 || m.lines[absIdx-1].kind == kindEqual
+		if dl.kind == kindFileHeader {
+			label := dl.left
+			if dl.left == "/dev/null" {
+				label = dl.right
+			} else if dl.right != "" && dl.right != dl.left {
+				label = dl.left + " → " + dl.right
+			}
+			prefix := "  ▸ "
+			rulePad := max(0, m.width-lipgloss.Width(prefix)-lipgloss.Width(label)-1)
+			rule := " " + strings.Repeat("─", rulePad)
+			rows = append(rows, fileHeaderStyle.Render(prefix+label)+fileHeaderRuleStyle.Render(rule))
+			continue
+		}
+		if dl.kind == kindCollapsed {
+			count := len(dl.collapsedLines)
+			text := fmt.Sprintf("  ⋯  %d 行  (e で展開)", count)
+			rows = append(rows, collapsedStyle.Width(m.width).Render(text))
+			continue
+		}
+		isBlockStart := absIdx == 0 || m.lines[absIdx-1].kind == kindEqual || m.lines[absIdx-1].kind == kindFileHeader || m.lines[absIdx-1].kind == kindCollapsed
 		leftNumStr := "    "
 		rightNumStr := "    "
 		if dl.leftNum > 0 {
@@ -266,7 +297,7 @@ func (m model) View() string {
 	if m.editable {
 		editHelp = "  >/<: 取り込み"
 	}
-	helpText := helpStyle.Render("↑↓/k/j: 縦  ←→/h/l: 横  n/N: 変更箇所  g/G: 先頭/末尾"+editHelp+"  q: 終了") +
+	helpText := helpStyle.Render("↑↓/k/j: 縦  ←→/h/l: 横  n/N: 変更箇所  g/G: 先頭/末尾  e: 展開"+editHelp+"  q: 終了") +
 		scrollStyle.Render(scrollInfo)
 
 	// ステータスメッセージ（あれば末尾に追記）
@@ -291,11 +322,13 @@ func (m model) View() string {
 // findCurrentHunk はカーソル行が属するハンクの範囲を返す。
 // カーソルが equal 行にある場合は直後の変更ブロックを探す。
 func findCurrentHunk(lines []diffLine, offset int) (start, end int, ok bool) {
+	isChange := func(k lineKind) bool { return !isContextKind(k) }
+
 	pivot := offset
-	if offset < len(lines) && lines[offset].kind == kindEqual {
+	if offset < len(lines) && !isChange(lines[offset].kind) {
 		pivot = -1
 		for i := offset; i < len(lines); i++ {
-			if lines[i].kind != kindEqual {
+			if isChange(lines[i].kind) {
 				pivot = i
 				break
 			}
@@ -306,11 +339,11 @@ func findCurrentHunk(lines []diffLine, offset int) (start, end int, ok bool) {
 	}
 
 	start = pivot
-	for start > 0 && lines[start-1].kind != kindEqual {
+	for start > 0 && isChange(lines[start-1].kind) {
 		start--
 	}
 	end = pivot + 1
-	for end < len(lines) && lines[end].kind != kindEqual {
+	for end < len(lines) && isChange(lines[end].kind) {
 		end++
 	}
 	return start, end, true
@@ -407,6 +440,97 @@ func insertFileLines(path string, afterLine int, newContent []string) error {
 	result = append(result, newContent...)
 	result = append(result, lines[afterLine:]...)
 	return writeLines(path, result)
+}
+
+// foldLines は連続する kindEqual 行を差分前後 ctx 行だけ残して折りたたむ。
+func foldLines(lines []diffLine, ctx int) []diffLine {
+	n := len(lines)
+	var result []diffLine
+	seenDiff := false
+
+	isDiff := func(k lineKind) bool {
+		return k != kindEqual && k != kindFileHeader && k != kindCollapsed
+	}
+
+	for i := 0; i < n; {
+		if lines[i].kind == kindFileHeader {
+			seenDiff = false
+			result = append(result, lines[i])
+			i++
+			continue
+		}
+		if isDiff(lines[i].kind) {
+			seenDiff = true
+			result = append(result, lines[i])
+			i++
+			continue
+		}
+		// kindEqual の連続範囲を特定
+		j := i
+		for j < n && lines[j].kind == kindEqual {
+			j++
+		}
+		runLen := j - i
+
+		// 後続に差分があるか確認
+		hasDiffAfter := false
+		for k := j; k < n; k++ {
+			if isDiff(lines[k].kind) {
+				hasDiffAfter = true
+				break
+			}
+		}
+
+		showBefore := 0
+		if seenDiff {
+			showBefore = min(ctx, runLen)
+		}
+		showAfter := 0
+		if hasDiffAfter {
+			showAfter = min(ctx, runLen-showBefore)
+		}
+
+		hiddenStart := i + showBefore
+		hiddenEnd := j - showAfter
+
+		result = append(result, lines[i:hiddenStart]...)
+		if hiddenEnd > hiddenStart {
+			result = append(result, diffLine{
+				kind:           kindCollapsed,
+				collapsedLines: append([]diffLine{}, lines[hiddenStart:hiddenEnd]...),
+			})
+		}
+		result = append(result, lines[hiddenEnd:j]...)
+		i = j
+	}
+	return result
+}
+
+// expandCollapsed はカーソル位置に最も近い kindCollapsed 行を展開する。
+func expandCollapsed(lines []diffLine, offset int) []diffLine {
+	idx := -1
+	for i := offset; i < len(lines); i++ {
+		if lines[i].kind == kindCollapsed {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		for i := offset - 1; i >= 0; i-- {
+			if lines[i].kind == kindCollapsed {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx == -1 {
+		return lines
+	}
+	var result []diffLine
+	result = append(result, lines[:idx]...)
+	result = append(result, lines[idx].collapsedLines...)
+	result = append(result, lines[idx+1:]...)
+	return result
 }
 
 func writeLines(path string, lines []string) error {
@@ -515,29 +639,88 @@ func splitLines(s string) []string {
 
 // --- パイプ入力パース ---
 func parseUnifiedDiff(r io.Reader) ([]diffLine, string, string) {
+	type fileSection struct {
+		leftFile   string
+		rightFile  string
+		leftLines  []string
+		rightLines []string
+	}
+
 	scanner := bufio.NewScanner(r)
-	var leftLines, rightLines []string
-	leftFile, rightFile := "before", "after"
+	var sections []fileSection
+	var cur fileSection
+	inFile := false
+
+	flush := func() {
+		if inFile {
+			sections = append(sections, cur)
+			cur = fileSection{}
+			inFile = false
+		}
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
 		case strings.HasPrefix(line, "--- "):
-			leftFile = strings.TrimPrefix(strings.TrimPrefix(line, "--- "), "a/")
+			flush()
+			name := strings.TrimPrefix(strings.TrimPrefix(line, "--- "), "a/")
+			name = strings.SplitN(name, "\t", 2)[0]
+			cur.leftFile = name
 		case strings.HasPrefix(line, "+++ "):
-			rightFile = strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
+			name := strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
+			name = strings.SplitN(name, "\t", 2)[0]
+			cur.rightFile = name
+			inFile = true
 		case strings.HasPrefix(line, "@@"):
 			// skip
 		case strings.HasPrefix(line, "-"):
-			leftLines = append(leftLines, line[1:])
+			if inFile {
+				cur.leftLines = append(cur.leftLines, line[1:])
+			}
 		case strings.HasPrefix(line, "+"):
-			rightLines = append(rightLines, line[1:])
+			if inFile {
+				cur.rightLines = append(cur.rightLines, line[1:])
+			}
 		case strings.HasPrefix(line, " "):
-			leftLines = append(leftLines, line[1:])
-			rightLines = append(rightLines, line[1:])
+			if inFile {
+				cur.leftLines = append(cur.leftLines, line[1:])
+				cur.rightLines = append(cur.rightLines, line[1:])
+			}
 		}
 	}
-	return computeDiff(leftLines, rightLines), leftFile, rightFile
+	flush()
+
+	var allLines []diffLine
+	var leftFileNames, rightFileNames []string
+
+	for _, section := range sections {
+		allLines = append(allLines, diffLine{kind: kindFileHeader, left: section.leftFile, right: section.rightFile})
+		sectionLines := computeDiff(section.leftLines, section.rightLines)
+		allLines = append(allLines, sectionLines...)
+		leftFileNames = append(leftFileNames, section.leftFile)
+		rightFileNames = append(rightFileNames, section.rightFile)
+	}
+
+	return allLines, diffFileLabel(leftFileNames, "before"), diffFileLabel(rightFileNames, "after")
+}
+
+func diffFileLabel(files []string, fallback string) string {
+	seen := map[string]struct{}{}
+	for _, f := range files {
+		if f != "/dev/null" {
+			seen[f] = struct{}{}
+		}
+	}
+	switch len(seen) {
+	case 0:
+		return fallback
+	case 1:
+		for f := range seen {
+			return f
+		}
+	}
+	return fmt.Sprintf("%d files", len(seen))
 }
 
 func readLines(path string) ([]string, error) {
@@ -617,21 +800,44 @@ func hscroll(s string, offset, w int) string {
 		return ""
 	}
 	runes := []rune(s)
-	if offset >= len(runes) {
-		return ""
+
+	// 表示列数ベースで offset 列分スキップ
+	col := 0
+	start := 0
+	for start < len(runes) {
+		cw := runewidth.RuneWidth(runes[start])
+		if col+cw > offset {
+			break
+		}
+		col += cw
+		start++
 	}
-	runes = runes[offset:]
-	if len(runes) <= w {
-		return string(runes)
+	runes = runes[start:]
+
+	// 表示列数ベースで w 列に収まるよう切り詰め
+	col = 0
+	for i, r := range runes {
+		cw := runewidth.RuneWidth(r)
+		if col+cw > w {
+			if col < w {
+				return string(runes[:i]) + "…"
+			}
+			return string(runes[:i])
+		}
+		col += cw
 	}
-	return string(runes[:w-1]) + "…"
+	return string(runes)
+}
+
+func isContextKind(k lineKind) bool {
+	return k == kindEqual || k == kindFileHeader || k == kindCollapsed
 }
 
 func countDiffBlocks(lines []diffLine) int {
 	count := 0
 	inBlock := false
 	for _, l := range lines {
-		if l.kind != kindEqual {
+		if !isContextKind(l.kind) {
 			if !inBlock {
 				count++
 				inBlock = true
@@ -645,7 +851,7 @@ func countDiffBlocks(lines []diffLine) int {
 
 func nextChange(lines []diffLine, from int) int {
 	for i := from + 1; i < len(lines); i++ {
-		if lines[i].kind != kindEqual {
+		if !isContextKind(lines[i].kind) {
 			return i
 		}
 	}
@@ -654,7 +860,7 @@ func nextChange(lines []diffLine, from int) int {
 
 func prevChange(lines []diffLine, from int) int {
 	for i := from - 1; i >= 0; i-- {
-		if lines[i].kind != kindEqual {
+		if !isContextKind(lines[i].kind) {
 			return i
 		}
 	}
@@ -694,8 +900,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	folded := foldLines(diffLines, diffContext)
 	m := model{
-		lines:      diffLines,
+		lines:      folded,
 		leftFile:   leftFile,
 		rightFile:  rightFile,
 		diffBlocks: countDiffBlocks(diffLines),
