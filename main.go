@@ -206,6 +206,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			m.lines = expandCollapsed(m.lines, m.cursor)
 			m = setCursor(m, m.cursor)
+		case "E":
+			m.lines = expandAll(m.lines)
+			m = setCursor(m, m.cursor)
+		case "C":
+			m.lines = foldLines(expandAll(m.lines), diffContext)
+			m = setCursor(m, m.cursor)
 		case ">":
 			if m.editable {
 				return m, applyChange(m, 1) // 左→右
@@ -400,7 +406,7 @@ func (m model) View() string {
 		if len(m.searchMatches) > 0 {
 			nHelp = "n/N: マッチ"
 		}
-		helpText = helpStyle.Render("↑↓/k/j: 縦  ←→/h/l: 横  "+nHelp+"  /: 検索  g/G: 先頭/末尾  e: 展開"+editHelp+"  q: 終了") +
+		helpText = helpStyle.Render("↑↓/k/j: 縦  ←→/h/l: 横  "+nHelp+"  /: 検索  g/G: 先頭/末尾  e/E/C: 展開"+editHelp+"  q: 終了") +
 			scrollStyle.Render(scrollInfo)
 		if m.status != "" {
 			rendered := statusOkStyle.Render(m.status)
@@ -603,6 +609,18 @@ func foldLines(lines []diffLine, ctx int) []diffLine {
 		}
 		result = append(result, lines[hiddenEnd:j]...)
 		i = j
+	}
+	return result
+}
+
+func expandAll(lines []diffLine) []diffLine {
+	var result []diffLine
+	for _, dl := range lines {
+		if dl.kind == kindCollapsed {
+			result = append(result, dl.collapsedLines...)
+		} else {
+			result = append(result, dl)
+		}
 	}
 	return result
 }
