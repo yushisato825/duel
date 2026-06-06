@@ -15,30 +15,33 @@ import (
 
 // --- スタイル定義 ---
 var (
-	addedStyle         = lipgloss.NewStyle().Background(lipgloss.Color("22")).Foreground(lipgloss.Color("255"))   // 追加: 濃い緑
-	removedStyle       = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("255"))   // 削除: 濃い赤
-	changedStyle       = lipgloss.NewStyle().Background(lipgloss.Color("18")).Foreground(lipgloss.Color("255"))   // 変更: 濃い青
-	changedInlineStyle = lipgloss.NewStyle().Background(lipgloss.Color("27")).Foreground(lipgloss.Color("255")).Bold(true) // 変更内強調: 明るい青
-	addedInlineStyle   = lipgloss.NewStyle().Background(lipgloss.Color("34")).Foreground(lipgloss.Color("255")).Bold(true)  // 追加箇所強調: 明るい緑
-	removedInlineStyle = lipgloss.NewStyle().Background(lipgloss.Color("160")).Foreground(lipgloss.Color("255")).Bold(true) // 削除箇所強調: 明るい赤
-	addedPadStyle      = lipgloss.NewStyle().Background(lipgloss.Color("236"))                                    // 追加パディング: グレー
-	removedPadStyle    = lipgloss.NewStyle().Background(lipgloss.Color("236"))                                    // 削除パディング: グレー
-	changedPadStyle    = lipgloss.NewStyle().Background(lipgloss.Color("18")).Foreground(lipgloss.Color("18"))   // 変更パディング（未使用予定）
-	equalStyle         = lipgloss.NewStyle()
-	headerStyle        = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("237")).Foreground(lipgloss.Color("250"))
-	lineNumStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
-	scrollStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	helpStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	dividerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
+	addedStyle          = lipgloss.NewStyle().Background(lipgloss.Color("22")).Foreground(lipgloss.Color("255"))             // 追加: 濃い緑
+	removedStyle        = lipgloss.NewStyle().Background(lipgloss.Color("52")).Foreground(lipgloss.Color("255"))             // 削除: 濃い赤
+	changedStyle        = lipgloss.NewStyle().Background(lipgloss.Color("18")).Foreground(lipgloss.Color("255"))             // 変更: 濃い青
+	changedInlineStyle  = lipgloss.NewStyle().Background(lipgloss.Color("27")).Foreground(lipgloss.Color("255")).Bold(true)  // 変更内強調: 明るい青
+	addedInlineStyle    = lipgloss.NewStyle().Background(lipgloss.Color("34")).Foreground(lipgloss.Color("255")).Bold(true)  // 追加箇所強調: 明るい緑
+	removedInlineStyle  = lipgloss.NewStyle().Background(lipgloss.Color("160")).Foreground(lipgloss.Color("255")).Bold(true) // 削除箇所強調: 明るい赤
+	addedPadStyle       = lipgloss.NewStyle().Background(lipgloss.Color("236"))                                              // 追加パディング: グレー
+	removedPadStyle     = lipgloss.NewStyle().Background(lipgloss.Color("236"))                                              // 削除パディング: グレー
+	changedPadStyle     = lipgloss.NewStyle().Background(lipgloss.Color("18")).Foreground(lipgloss.Color("18"))              // 変更パディング（未使用予定）
+	equalStyle          = lipgloss.NewStyle()
+	headerStyle         = lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("237")).Foreground(lipgloss.Color("250"))
+	lineNumStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
+	scrollStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	helpStyle           = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	dividerStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
 	fileHeaderStyle     = lipgloss.NewStyle().Background(lipgloss.Color("239")).Foreground(lipgloss.Color("255")).Bold(true)
 	fileHeaderRuleStyle = lipgloss.NewStyle().Background(lipgloss.Color("239")).Foreground(lipgloss.Color("241"))
 	collapsedStyle      = lipgloss.NewStyle().Background(lipgloss.Color("235")).Foreground(lipgloss.Color("244"))
-	statusOkStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
-	statusErrStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-	gutterEq           = lipgloss.NewStyle().Foreground(lipgloss.Color("237")).Render("│")
-	gutterChanged      = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true).Render("⟷")
-	gutterRemoved      = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true).Render("›")
-	gutterAdded        = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
+	statusOkStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
+	statusErrStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	gutterEq            = lipgloss.NewStyle().Foreground(lipgloss.Color("237")).Render("│")
+	gutterChanged       = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true).Render("⟷")
+	gutterRemoved       = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true).Render("›")
+	gutterAdded         = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
+	searchBarStyle      = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("255"))
+	searchPromptStyle   = lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(lipgloss.Color("220")).Bold(true)
+	searchMatchStyle    = lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true)
 )
 
 // --- データ型 ---
@@ -89,6 +92,11 @@ type model struct {
 	editable   bool   // ファイルモード時のみtrue（パイプ入力では編集不可）
 	status     string // ステータスメッセージ
 	statusErr  bool
+	cursor        int
+	searching     bool
+	searchQuery   string
+	searchMatches []int
+	searchIdx     int
 }
 
 func (m model) visibleLines() int {
@@ -108,44 +116,96 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case diffUpdatedMsg:
 		m.lines = foldLines(msg.lines, diffContext)
 		m.diffBlocks = msg.diffBlocks
+		m.cursor = clamp(m.cursor, 0, max(0, len(m.lines)-1))
 		m.offset = clamp(m.offset, 0, max(0, len(m.lines)-m.visibleLines()))
 		m.status = "適用しました"
 		m.statusErr = false
+		m.searchMatches = nil
+		m.searchIdx = 0
 
 	case statusMsg:
 		m.status = msg.text
 		m.statusErr = msg.isErr
 
 	case tea.KeyMsg:
+		if m.searching {
+			switch msg.String() {
+			case "enter":
+				m.searching = false
+				if len(m.searchMatches) > 0 {
+					m = setCursor(m, m.searchMatches[m.searchIdx])
+				}
+			case "esc", "ctrl+c":
+				m.searching = false
+				m.searchQuery = ""
+				m.searchMatches = nil
+				m.searchIdx = 0
+			case "backspace", "ctrl+h":
+				if len(m.searchQuery) > 0 {
+					runes := []rune(m.searchQuery)
+					m.searchQuery = string(runes[:len(runes)-1])
+					m.searchMatches = findSearchMatches(m.lines, m.searchQuery)
+					m.searchIdx = 0
+					if len(m.searchMatches) > 0 {
+						m = setCursor(m, m.searchMatches[0])
+					}
+				}
+			default:
+				if len(msg.Runes) > 0 {
+					m.searchQuery += string(msg.Runes)
+					m.searchMatches = findSearchMatches(m.lines, m.searchQuery)
+					m.searchIdx = 0
+					if len(m.searchMatches) > 0 {
+						m = setCursor(m, m.searchMatches[0])
+					}
+				}
+			}
+			return m, nil
+		}
 		m.status = "" // キー入力でステータスをクリア
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "down", "j":
-			m.offset = clamp(m.offset+1, 0, max(0, len(m.lines)-m.visibleLines()))
+			m = setCursor(m, m.cursor+1)
 		case "up", "k":
-			m.offset = clamp(m.offset-1, 0, max(0, len(m.lines)-m.visibleLines()))
+			m = setCursor(m, m.cursor-1)
 		case "pgdown", "ctrl+f":
-			m.offset = clamp(m.offset+m.visibleLines(), 0, max(0, len(m.lines)-m.visibleLines()))
+			m = setCursor(m, m.cursor+m.visibleLines())
 		case "pgup", "ctrl+b":
-			m.offset = clamp(m.offset-m.visibleLines(), 0, max(0, len(m.lines)-m.visibleLines()))
+			m = setCursor(m, m.cursor-m.visibleLines())
 		case "g":
-			m.offset = 0
+			m = setCursor(m, 0)
 		case "G":
-			m.offset = max(0, len(m.lines)-m.visibleLines())
+			m = setCursor(m, len(m.lines)-1)
 		case "n":
-			m.offset = nextChange(m.lines, m.offset)
+			if len(m.searchMatches) > 0 {
+				m.searchIdx = (m.searchIdx + 1) % len(m.searchMatches)
+				m = setCursor(m, m.searchMatches[m.searchIdx])
+			} else {
+				m = setCursor(m, nextChange(m.lines, m.cursor))
+			}
 		case "N":
-			m.offset = prevChange(m.lines, m.offset)
+			if len(m.searchMatches) > 0 {
+				m.searchIdx = (m.searchIdx - 1 + len(m.searchMatches)) % len(m.searchMatches)
+				m = setCursor(m, m.searchMatches[m.searchIdx])
+			} else {
+				m = setCursor(m, prevChange(m.lines, m.cursor))
+			}
 		case "right", "l":
 			m.hOffset += 4
 		case "left", "h":
 			m.hOffset = max(0, m.hOffset-4)
 		case "0":
 			m.hOffset = 0
+		case "/":
+			m.searching = true
+			m.searchQuery = ""
+			m.searchMatches = nil
+			m.searchIdx = 0
 		case "e":
-			m.lines = expandCollapsed(m.lines, m.offset)
-			m.offset = clamp(m.offset, 0, max(0, len(m.lines)-m.visibleLines()))
+			m.lines = expandCollapsed(m.lines, m.cursor)
+			m = setCursor(m, m.cursor)
 		case ">":
 			if m.editable {
 				return m, applyChange(m, 1) // 左→右
@@ -181,6 +241,7 @@ func (m model) View() string {
 	var rows []string
 	for i, dl := range m.lines[m.offset:end] {
 		absIdx := m.offset + i
+		isCursor := absIdx == m.cursor
 		if dl.kind == kindFileHeader {
 			label := dl.left
 			if dl.left == "/dev/null" {
@@ -189,15 +250,24 @@ func (m model) View() string {
 				label = dl.left + " → " + dl.right
 			}
 			prefix := "  ▸ "
+			hStyle := fileHeaderStyle
+			if isCursor {
+				prefix = "  ▶ "
+				hStyle = fileHeaderStyle.Copy().Background(lipgloss.Color("238"))
+			}
 			rulePad := max(0, m.width-lipgloss.Width(prefix)-lipgloss.Width(label)-1)
 			rule := " " + strings.Repeat("─", rulePad)
-			rows = append(rows, fileHeaderStyle.Render(prefix+label)+fileHeaderRuleStyle.Render(rule))
+			rows = append(rows, hStyle.Render(prefix+label)+fileHeaderRuleStyle.Render(rule))
 			continue
 		}
 		if dl.kind == kindCollapsed {
 			count := len(dl.collapsedLines)
 			text := fmt.Sprintf("  ⋯  %d 行  (e で展開)", count)
-			rows = append(rows, collapsedStyle.Width(m.width).Render(text))
+			cStyle := collapsedStyle
+			if isCursor {
+				cStyle = collapsedStyle.Copy().Background(lipgloss.Color("238"))
+			}
+			rows = append(rows, cStyle.Width(m.width).Render(text))
 			continue
 		}
 		isBlockStart := absIdx == 0 || m.lines[absIdx-1].kind == kindEqual || m.lines[absIdx-1].kind == kindFileHeader || m.lines[absIdx-1].kind == kindCollapsed
@@ -224,12 +294,12 @@ func (m model) View() string {
 			leftBg, rightBg = changedStyle, changedStyle
 			leftSlice := hscroll(dl.left, m.hOffset, contentW)
 			rightSlice := hscroll(dl.right, m.hOffset, contentW)
-			leftCell, rightCell = renderInlineDiff(leftSlice, rightSlice, leftBg, rightBg, changedInlineStyle, changedInlineStyle, contentW)
+			leftCell, rightCell = renderInlineDiff(leftSlice, rightSlice, leftBg, rightBg, changedInlineStyle, changedInlineStyle, contentW, m.searchQuery)
 			leftGutter = leftBg.Copy().Foreground(lipgloss.Color("214")).Bold(true).Render("›")
 			rightGutter = rightBg.Copy().Foreground(lipgloss.Color("214")).Bold(true).Render("‹")
 		case kindRemoved:
 			leftBg, rightBg = removedStyle, removedPadStyle
-			leftCell = leftBg.Width(contentW).Render(leftText)
+			leftCell = renderWithSearch(leftText, m.searchQuery, leftBg, searchMatchStyle, contentW)
 			rightCell = rightBg.Width(contentW).Render("")
 			rightNumStr = "    "
 			leftGutter = leftBg.Copy().Foreground(lipgloss.Color("196")).Bold(true).Render("›")
@@ -237,7 +307,7 @@ func (m model) View() string {
 		case kindAdded:
 			leftBg, rightBg = addedPadStyle, addedStyle
 			leftCell = leftBg.Width(contentW).Render("")
-			rightCell = rightBg.Width(contentW).Render(rightText)
+			rightCell = renderWithSearch(rightText, m.searchQuery, rightBg, searchMatchStyle, contentW)
 			leftNumStr = "    "
 			leftGutter = leftBg.Render(" ")
 			rightGutter = rightBg.Copy().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
@@ -245,13 +315,13 @@ func (m model) View() string {
 			if dl.padSide == -1 {
 				leftBg, rightBg = addedPadStyle, addedStyle
 				leftCell = leftBg.Width(contentW).Render("")
-				rightCell = rightBg.Width(contentW).Render(rightText)
+				rightCell = renderWithSearch(rightText, m.searchQuery, rightBg, searchMatchStyle, contentW)
 				leftNumStr = "    "
 				leftGutter = leftBg.Render(" ")
 				rightGutter = rightBg.Copy().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
 			} else {
 				leftBg, rightBg = removedStyle, removedPadStyle
-				leftCell = leftBg.Width(contentW).Render(leftText)
+				leftCell = renderWithSearch(leftText, m.searchQuery, leftBg, searchMatchStyle, contentW)
 				rightCell = rightBg.Width(contentW).Render("")
 				rightNumStr = "    "
 				leftGutter = leftBg.Copy().Foreground(lipgloss.Color("196")).Bold(true).Render("›")
@@ -259,8 +329,8 @@ func (m model) View() string {
 			}
 		default:
 			leftBg, rightBg = equalStyle, equalStyle
-			leftCell = leftBg.Width(contentW).Render(leftText)
-			rightCell = rightBg.Width(contentW).Render(rightText)
+			leftCell = renderWithSearch(leftText, m.searchQuery, leftBg, searchMatchStyle, contentW)
+			rightCell = renderWithSearch(rightText, m.searchQuery, rightBg, searchMatchStyle, contentW)
 			leftGutter = " "
 			rightGutter = " "
 		}
@@ -273,6 +343,13 @@ func (m model) View() string {
 
 		dimLeft := leftBg.Copy().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
 		dimRight := rightBg.Copy().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
+		if isCursor {
+			dimLeft = leftBg.Copy().Foreground(lipgloss.Color("255")).Width(4).Align(lipgloss.Right)
+			dimRight = rightBg.Copy().Foreground(lipgloss.Color("255")).Width(4).Align(lipgloss.Right)
+			if dl.kind == kindEqual {
+				leftGutter = lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true).Render("▶")
+			}
+		}
 		leftSide := leftCell + leftGutter + dimLeft.Render(leftNumStr)
 		rightSide := dimRight.Render(rightNumStr) + rightGutter + rightCell
 		rows = append(rows, leftSide+dividerStyle.Render("│")+rightSide)
@@ -285,29 +362,53 @@ func (m model) View() string {
 	// ヘルプバー
 	total := len(m.lines)
 	scrollInfo := ""
+	if m.diffBlocks > 0 {
+		hunkNum := currentHunkNum(m.lines, m.cursor)
+		scrollInfo = fmt.Sprintf(" hunk %d/%d", hunkNum, m.diffBlocks)
+	}
 	if total > 0 {
 		pct := min((m.offset+visible)*100/total, 100)
-		scrollInfo = fmt.Sprintf(" %d/%d (%d%%)", m.offset+1, total, pct)
+		scrollInfo += fmt.Sprintf("  %d/%d (%d%%)", m.offset+1, total, pct)
 	}
 	if m.hOffset > 0 {
 		scrollInfo += fmt.Sprintf("  ←→:%d", m.hOffset)
 	}
 
-	editHelp := ""
-	if m.editable {
-		editHelp = "  >/<: 取り込み"
-	}
-	helpText := helpStyle.Render("↑↓/k/j: 縦  ←→/h/l: 横  n/N: 変更箇所  g/G: 先頭/末尾  e: 展開"+editHelp+"  q: 終了") +
-		scrollStyle.Render(scrollInfo)
-
-	// ステータスメッセージ（あれば末尾に追記）
-	if m.status != "" {
-		s := m.status
-		rendered := statusOkStyle.Render(s)
-		if m.statusErr {
-			rendered = statusErrStyle.Render(s)
+	var helpText string
+	if m.searching {
+		prompt := searchPromptStyle.Render("/")
+		query := searchBarStyle.Render(m.searchQuery + "█")
+		var matchInfo string
+		if m.searchQuery != "" {
+			if len(m.searchMatches) == 0 {
+				matchInfo = searchBarStyle.Render("  [一致なし]")
+			} else {
+				matchInfo = searchBarStyle.Render(fmt.Sprintf("  [%d/%d]", m.searchIdx+1, len(m.searchMatches)))
+			}
 		}
-		helpText += "  " + rendered
+		content := " " + prompt + " " + query + matchInfo
+		if pad := m.width - lipgloss.Width(content); pad > 0 {
+			content += searchBarStyle.Render(strings.Repeat(" ", pad))
+		}
+		helpText = content
+	} else {
+		editHelp := ""
+		if m.editable {
+			editHelp = "  >/<: 取り込み"
+		}
+		nHelp := "n/N: 変更箇所"
+		if len(m.searchMatches) > 0 {
+			nHelp = "n/N: マッチ"
+		}
+		helpText = helpStyle.Render("↑↓/k/j: 縦  ←→/h/l: 横  "+nHelp+"  /: 検索  g/G: 先頭/末尾  e: 展開"+editHelp+"  q: 終了") +
+			scrollStyle.Render(scrollInfo)
+		if m.status != "" {
+			rendered := statusOkStyle.Render(m.status)
+			if m.statusErr {
+				rendered = statusErrStyle.Render(m.status)
+			}
+			helpText += "  " + rendered
+		}
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -353,7 +454,7 @@ func findCurrentHunk(lines []diffLine, offset int) (start, end int, ok bool) {
 // dir=1: 左→右（右ファイルを書き換え）, dir=-1: 右→左（左ファイルを書き換え）
 func applyChange(m model, dir int) tea.Cmd {
 	return func() tea.Msg {
-		start, end, ok := findCurrentHunk(m.lines, m.offset)
+		start, end, ok := findCurrentHunk(m.lines, m.cursor)
 		if !ok {
 			return statusMsg{"変更ブロックが見つかりません", true}
 		}
@@ -738,22 +839,81 @@ func readLines(path string) ([]string, error) {
 }
 
 // --- インライン差分レンダリング ---
-func renderInlineDiff(leftText, rightText string, baseLeft, baseRight, hlDel, hlIns lipgloss.Style, contentW int) (string, string) {
+func matchRanges(text, query string) [][2]int {
+	if query == "" {
+		return nil
+	}
+	lowerText := strings.ToLower(text)
+	lowerQ := strings.ToLower(query)
+	var ranges [][2]int
+	i := 0
+	for {
+		j := strings.Index(lowerText[i:], lowerQ)
+		if j == -1 {
+			break
+		}
+		start := i + j
+		end := start + len(lowerQ)
+		ranges = append(ranges, [2]int{start, end})
+		i = end
+	}
+	return ranges
+}
+
+func renderSegment(text string, pos int, ranges [][2]int, baseStyle, hlStyle lipgloss.Style) string {
+	if len(ranges) == 0 {
+		return baseStyle.Render(text)
+	}
+	var b strings.Builder
+	cur := 0
+	for _, r := range ranges {
+		start := r[0] - pos
+		end := r[1] - pos
+		if end <= 0 || start >= len(text) {
+			continue
+		}
+		if start < 0 {
+			start = 0
+		}
+		if end > len(text) {
+			end = len(text)
+		}
+		if start > cur {
+			b.WriteString(baseStyle.Render(text[cur:start]))
+		}
+		b.WriteString(hlStyle.Render(text[start:end]))
+		cur = end
+	}
+	if cur < len(text) {
+		b.WriteString(baseStyle.Render(text[cur:]))
+	}
+	return b.String()
+}
+
+func renderInlineDiff(leftText, rightText string, baseLeft, baseRight, hlDel, hlIns lipgloss.Style, contentW int, searchQuery string) (string, string) {
 	dmp := diffmatchpatch.New()
 	diffs := dmp.DiffMain(leftText, rightText, false)
 	dmp.DiffCleanupSemantic(diffs)
 
+	leftRanges := matchRanges(leftText, searchQuery)
+	rightRanges := matchRanges(rightText, searchQuery)
+
 	var leftBuf, rightBuf strings.Builder
+	leftPos, rightPos := 0, 0
 
 	for _, d := range diffs {
 		switch d.Type {
 		case diffmatchpatch.DiffEqual:
-			leftBuf.WriteString(baseLeft.Render(d.Text))
-			rightBuf.WriteString(baseRight.Render(d.Text))
+			leftBuf.WriteString(renderSegment(d.Text, leftPos, leftRanges, baseLeft, searchMatchStyle))
+			rightBuf.WriteString(renderSegment(d.Text, rightPos, rightRanges, baseRight, searchMatchStyle))
+			leftPos += len(d.Text)
+			rightPos += len(d.Text)
 		case diffmatchpatch.DiffDelete:
-			leftBuf.WriteString(hlDel.Render(d.Text))
+			leftBuf.WriteString(renderSegment(d.Text, leftPos, leftRanges, hlDel, searchMatchStyle))
+			leftPos += len(d.Text)
 		case diffmatchpatch.DiffInsert:
-			rightBuf.WriteString(hlIns.Render(d.Text))
+			rightBuf.WriteString(renderSegment(d.Text, rightPos, rightRanges, hlIns, searchMatchStyle))
+			rightPos += len(d.Text)
 		}
 	}
 
@@ -795,6 +955,17 @@ func min(a, b int) int {
 	return b
 }
 
+func setCursor(m model, pos int) model {
+	m.cursor = clamp(pos, 0, max(0, len(m.lines)-1))
+	vis := m.visibleLines()
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	} else if m.cursor >= m.offset+vis {
+		m.offset = m.cursor - vis + 1
+	}
+	return m
+}
+
 func hscroll(s string, offset, w int) string {
 	if w <= 0 {
 		return ""
@@ -831,6 +1002,68 @@ func hscroll(s string, offset, w int) string {
 
 func isContextKind(k lineKind) bool {
 	return k == kindEqual || k == kindFileHeader || k == kindCollapsed
+}
+
+func findSearchMatches(lines []diffLine, query string) []int {
+	if query == "" {
+		return nil
+	}
+	lowerQ := strings.ToLower(query)
+	var matches []int
+	for i, dl := range lines {
+		if strings.Contains(strings.ToLower(dl.left), lowerQ) ||
+			strings.Contains(strings.ToLower(dl.right), lowerQ) {
+			matches = append(matches, i)
+		}
+	}
+	return matches
+}
+
+func highlightQuery(text, query string, baseStyle, hlStyle lipgloss.Style) string {
+	if query == "" || !strings.Contains(strings.ToLower(text), strings.ToLower(query)) {
+		return baseStyle.Render(text)
+	}
+	lowerText := strings.ToLower(text)
+	lowerQ := strings.ToLower(query)
+	var b strings.Builder
+	i := 0
+	for i < len(text) {
+		j := strings.Index(lowerText[i:], lowerQ)
+		if j == -1 {
+			b.WriteString(baseStyle.Render(text[i:]))
+			break
+		}
+		if j > 0 {
+			b.WriteString(baseStyle.Render(text[i : i+j]))
+		}
+		b.WriteString(hlStyle.Render(text[i+j : i+j+len(lowerQ)]))
+		i += j + len(lowerQ)
+	}
+	return b.String()
+}
+
+func renderWithSearch(text, query string, baseStyle, hlStyle lipgloss.Style, contentW int) string {
+	result := highlightQuery(text, query, baseStyle, hlStyle)
+	if pad := contentW - lipgloss.Width(result); pad > 0 {
+		result += baseStyle.Render(strings.Repeat(" ", pad))
+	}
+	return result
+}
+
+func currentHunkNum(lines []diffLine, cursor int) int {
+	count := 0
+	inBlock := false
+	for i := 0; i <= cursor && i < len(lines); i++ {
+		if !isContextKind(lines[i].kind) {
+			if !inBlock {
+				count++
+				inBlock = true
+			}
+		} else {
+			inBlock = false
+		}
+	}
+	return count
 }
 
 func countDiffBlocks(lines []diffLine) int {
