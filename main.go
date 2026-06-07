@@ -157,6 +157,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = msg.text
 		m.statusErr = msg.isErr
 
+	case tea.MouseMsg:
+		switch msg.Type {
+		case tea.MouseWheelUp:
+			m = setCursor(m, m.cursor-3)
+		case tea.MouseWheelDown:
+			m = setCursor(m, m.cursor+3)
+		}
+
 	case tea.KeyMsg:
 		if m.searching {
 			switch msg.String() {
@@ -1423,7 +1431,7 @@ func main() {
 		context:    defaultContext,
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
