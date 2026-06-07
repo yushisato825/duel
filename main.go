@@ -102,6 +102,7 @@ type model struct {
 	cursor        int
 	context       int
 	showHelp      bool
+	wrap          bool
 	pendingKey    string
 	searching     bool
 	searchQuery   string
@@ -244,6 +245,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			m.searchMatches = nil
 			m.searchIdx = 0
+		case "w":
+			m.wrap = !m.wrap
+			if m.wrap {
+				m.hOffset = 0
+			}
+			m = setCursor(m, m.cursor)
 		case "]", "[":
 			m.pendingKey = msg.String()
 			return m, nil
@@ -307,11 +314,12 @@ func (m model) View() string {
 
 	// 差分行のレンダリング
 	visible := m.visibleLines()
-	end := min(m.offset+visible, len(m.lines))
 	var rows []string
-	for i, dl := range m.lines[m.offset:end] {
-		absIdx := m.offset + i
+	for lineIdx := m.offset; lineIdx < len(m.lines) && len(rows) < visible; lineIdx++ {
+		dl := m.lines[lineIdx]
+		absIdx := lineIdx
 		isCursor := absIdx == m.cursor
+
 		if dl.kind == kindFileHeader {
 			label := dl.left
 			if dl.left == "/dev/null" {
@@ -340,7 +348,8 @@ func (m model) View() string {
 			rows = append(rows, cStyle.Width(m.width).Render(text))
 			continue
 		}
-		isBlockStart := absIdx == 0 || m.lines[absIdx-1].kind == kindEqual || m.lines[absIdx-1].kind == kindFileHeader || m.lines[absIdx-1].kind == kindCollapsed
+
+		isBlockStart := absIdx == 0 || isContextKind(m.lines[absIdx-1].kind)
 		leftNumStr := "    "
 		rightNumStr := "    "
 		if dl.leftNum > 0 {
@@ -350,79 +359,104 @@ func (m model) View() string {
 			rightNumStr = fmt.Sprintf("%4d", dl.rightNum)
 		}
 
-		leftText := hscroll(dl.left, m.hOffset, contentW)
-		rightText := hscroll(dl.right, m.hOffset, contentW)
+		// wrap モード: 行を contentW 列ごとに分割。非 wrap: 1チャンク
+		type chunk struct{ left, right string }
+		var chunks []chunk
+		if m.wrap {
+			lc := wrapText(dl.left, contentW)
+			rc := wrapText(dl.right, contentW)
+			n := max(len(lc), len(rc))
+			for ci := 0; ci < n; ci++ {
+				l, r := "", ""
+				if ci < len(lc) {
+					l = lc[ci]
+				}
+				if ci < len(rc) {
+					r = rc[ci]
+				}
+				chunks = append(chunks, chunk{l, r})
+			}
+		} else {
+			chunks = []chunk{{hscroll(dl.left, m.hOffset, contentW), hscroll(dl.right, m.hOffset, contentW)}}
+		}
 
-		// 行の種類ごとに背景・内容・ガターを決定
-		// レイアウト: [content][leftGutter][linenum]│[linenum][rightGutter][content]
-		var leftCell, rightCell string
-		var leftBg, rightBg lipgloss.Style
-		var leftGutter, rightGutter string
+		for ci, ch := range chunks {
+			if len(rows) >= visible {
+				break
+			}
+			lNum, rNum := "    ", "    "
+			if ci == 0 {
+				lNum, rNum = leftNumStr, rightNumStr
+			}
 
-		switch dl.kind {
-		case kindChanged:
-			leftBg, rightBg = changedStyle, changedStyle
-			leftSlice := hscroll(dl.left, m.hOffset, contentW)
-			rightSlice := hscroll(dl.right, m.hOffset, contentW)
-			leftCell, rightCell = renderInlineDiff(leftSlice, rightSlice, leftBg, rightBg, changedInlineStyle, changedInlineStyle, contentW, m.searchQuery)
-			leftGutter = leftBg.Copy().Foreground(lipgloss.Color("214")).Bold(true).Render("›")
-			rightGutter = rightBg.Copy().Foreground(lipgloss.Color("214")).Bold(true).Render("‹")
-		case kindRemoved:
-			leftBg, rightBg = removedStyle, removedPadStyle
-			leftCell = renderWithSearch(leftText, m.searchQuery, leftBg, searchMatchStyle, contentW)
-			rightCell = rightBg.Width(contentW).Render("")
-			rightNumStr = "    "
-			leftGutter = leftBg.Copy().Foreground(lipgloss.Color("196")).Bold(true).Render("›")
-			rightGutter = rightBg.Render(" ")
-		case kindAdded:
-			leftBg, rightBg = addedPadStyle, addedStyle
-			leftCell = leftBg.Width(contentW).Render("")
-			rightCell = renderWithSearch(rightText, m.searchQuery, rightBg, searchMatchStyle, contentW)
-			leftNumStr = "    "
-			leftGutter = leftBg.Render(" ")
-			rightGutter = rightBg.Copy().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
-		case kindPad:
-			if dl.padSide == -1 {
-				leftBg, rightBg = addedPadStyle, addedStyle
-				leftCell = leftBg.Width(contentW).Render("")
-				rightCell = renderWithSearch(rightText, m.searchQuery, rightBg, searchMatchStyle, contentW)
-				leftNumStr = "    "
-				leftGutter = leftBg.Render(" ")
-				rightGutter = rightBg.Copy().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
-			} else {
+			// レイアウト: [content][leftGutter][linenum]│[linenum][rightGutter][content]
+			var leftCell, rightCell string
+			var leftBg, rightBg lipgloss.Style
+			var leftGutter, rightGutter string
+
+			switch dl.kind {
+			case kindChanged:
+				leftBg, rightBg = changedStyle, changedStyle
+				leftCell, rightCell = renderInlineDiff(ch.left, ch.right, leftBg, rightBg, changedInlineStyle, changedInlineStyle, contentW, m.searchQuery)
+				leftGutter = leftBg.Copy().Foreground(lipgloss.Color("214")).Bold(true).Render("›")
+				rightGutter = rightBg.Copy().Foreground(lipgloss.Color("214")).Bold(true).Render("‹")
+			case kindRemoved:
 				leftBg, rightBg = removedStyle, removedPadStyle
-				leftCell = renderWithSearch(leftText, m.searchQuery, leftBg, searchMatchStyle, contentW)
+				leftCell = renderWithSearch(ch.left, m.searchQuery, leftBg, searchMatchStyle, contentW)
 				rightCell = rightBg.Width(contentW).Render("")
-				rightNumStr = "    "
+				rNum = "    "
 				leftGutter = leftBg.Copy().Foreground(lipgloss.Color("196")).Bold(true).Render("›")
 				rightGutter = rightBg.Render(" ")
+			case kindAdded:
+				leftBg, rightBg = addedPadStyle, addedStyle
+				leftCell = leftBg.Width(contentW).Render("")
+				rightCell = renderWithSearch(ch.right, m.searchQuery, rightBg, searchMatchStyle, contentW)
+				lNum = "    "
+				leftGutter = leftBg.Render(" ")
+				rightGutter = rightBg.Copy().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
+			case kindPad:
+				if dl.padSide == -1 {
+					leftBg, rightBg = addedPadStyle, addedStyle
+					leftCell = leftBg.Width(contentW).Render("")
+					rightCell = renderWithSearch(ch.right, m.searchQuery, rightBg, searchMatchStyle, contentW)
+					lNum = "    "
+					leftGutter = leftBg.Render(" ")
+					rightGutter = rightBg.Copy().Foreground(lipgloss.Color("46")).Bold(true).Render("‹")
+				} else {
+					leftBg, rightBg = removedStyle, removedPadStyle
+					leftCell = renderWithSearch(ch.left, m.searchQuery, leftBg, searchMatchStyle, contentW)
+					rightCell = rightBg.Width(contentW).Render("")
+					rNum = "    "
+					leftGutter = leftBg.Copy().Foreground(lipgloss.Color("196")).Bold(true).Render("›")
+					rightGutter = rightBg.Render(" ")
+				}
+			default:
+				leftBg, rightBg = equalStyle, equalStyle
+				leftCell = renderWithSearch(ch.left, m.searchQuery, leftBg, searchMatchStyle, contentW)
+				rightCell = renderWithSearch(ch.right, m.searchQuery, rightBg, searchMatchStyle, contentW)
+				leftGutter = " "
+				rightGutter = " "
 			}
-		default:
-			leftBg, rightBg = equalStyle, equalStyle
-			leftCell = renderWithSearch(leftText, m.searchQuery, leftBg, searchMatchStyle, contentW)
-			rightCell = renderWithSearch(rightText, m.searchQuery, rightBg, searchMatchStyle, contentW)
-			leftGutter = " "
-			rightGutter = " "
-		}
 
-		// ブロックの先頭行以外はガターをスペースにする
-		if !isBlockStart {
-			leftGutter = leftBg.Render(" ")
-			rightGutter = rightBg.Render(" ")
-		}
-
-		dimLeft := leftBg.Copy().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
-		dimRight := rightBg.Copy().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
-		if isCursor {
-			dimLeft = leftBg.Copy().Foreground(lipgloss.Color("255")).Width(4).Align(lipgloss.Right)
-			dimRight = rightBg.Copy().Foreground(lipgloss.Color("255")).Width(4).Align(lipgloss.Right)
-			if dl.kind == kindEqual {
-				leftGutter = lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true).Render("▶")
+			chunkIsBlockStart := isBlockStart && ci == 0
+			if !chunkIsBlockStart {
+				leftGutter = leftBg.Render(" ")
+				rightGutter = rightBg.Render(" ")
 			}
+
+			dimLeft := leftBg.Copy().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
+			dimRight := rightBg.Copy().Foreground(lipgloss.Color("241")).Width(4).Align(lipgloss.Right)
+			if isCursor && ci == 0 {
+				dimLeft = leftBg.Copy().Foreground(lipgloss.Color("255")).Width(4).Align(lipgloss.Right)
+				dimRight = rightBg.Copy().Foreground(lipgloss.Color("255")).Width(4).Align(lipgloss.Right)
+				if dl.kind == kindEqual {
+					leftGutter = lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true).Render("▶")
+				}
+			}
+			leftSide := leftCell + leftGutter + dimLeft.Render(lNum)
+			rightSide := dimRight.Render(rNum) + rightGutter + rightCell
+			rows = append(rows, leftSide+dividerStyle.Render("│")+rightSide)
 		}
-		leftSide := leftCell + leftGutter + dimLeft.Render(leftNumStr)
-		rightSide := dimRight.Render(rightNumStr) + rightGutter + rightCell
-		rows = append(rows, leftSide+dividerStyle.Render("│")+rightSide)
 	}
 
 	for len(rows) < visible {
@@ -440,7 +474,9 @@ func (m model) View() string {
 		pct := min((m.offset+visible)*100/total, 100)
 		scrollInfo += fmt.Sprintf("  %d/%d (%d%%)", m.offset+1, total, pct)
 	}
-	if m.hOffset > 0 {
+	if m.wrap {
+		scrollInfo += "  [wrap]"
+	} else if m.hOffset > 0 {
 		scrollInfo += fmt.Sprintf("  ←→:%d", m.hOffset)
 	}
 
@@ -1089,6 +1125,34 @@ func setCursor(m model, pos int) model {
 	return m
 }
 
+func wrapText(text string, width int) []string {
+	if width <= 0 {
+		return []string{""}
+	}
+	if text == "" {
+		return []string{""}
+	}
+	var chunks []string
+	runes := []rune(text)
+	for len(runes) > 0 {
+		col, i := 0, 0
+		for i < len(runes) {
+			cw := runewidth.RuneWidth(runes[i])
+			if col+cw > width {
+				break
+			}
+			col += cw
+			i++
+		}
+		if i == 0 {
+			i = 1
+		}
+		chunks = append(chunks, string(runes[:i]))
+		runes = runes[i:]
+	}
+	return chunks
+}
+
 func hscroll(s string, offset, w int) string {
 	if w <= 0 {
 		return ""
@@ -1132,6 +1196,7 @@ func allHelpItems(editable bool) []string {
 		"↑↓/j/k: 縦スクロール",
 		"←→/h/l: 横スクロール",
 		"0: 横リセット",
+		"w: 折り返しトグル",
 		"n/N: 次/前の変更",
 		"]f/[f: 次/前のファイル",
 		"g/G: 先頭/末尾",
