@@ -1,4 +1,4 @@
-module duel
+module github.com/yushisato825/duel
 
 go 1.24.0
 
