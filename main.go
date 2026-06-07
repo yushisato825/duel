@@ -453,7 +453,9 @@ func (m model) View() string {
 		}
 		helpText = helpStyle.Render(nHelp+"  /: 検索  ?: ヘルプ  q: 終了") +
 			scrollStyle.Render(scrollInfo)
-		if m.status != "" {
+		if m.pendingKey != "" {
+			helpText += "  " + statusOkStyle.Render(m.pendingKey+"…")
+		} else if m.status != "" {
 			rendered := statusOkStyle.Render(m.status)
 			if m.statusErr {
 				rendered = statusErrStyle.Render(m.status)
