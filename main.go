@@ -104,6 +104,8 @@ type model struct {
 	context       int
 	showHelp      bool
 	wrap          bool
+	ignoreWS      bool
+	rawLines      []diffLine
 	pendingKey    string
 	searching     bool
 	searchQuery   string
@@ -133,8 +135,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case diffUpdatedMsg:
-		m.lines = foldLines(msg.lines, m.context)
-		m.diffBlocks = msg.diffBlocks
+		m.rawLines = msg.lines
+		processed := msg.lines
+		if m.ignoreWS {
+			processed = applyIgnoreWS(msg.lines)
+		}
+		m.lines = foldLines(processed, m.context)
+		m.diffBlocks = countDiffBlocks(processed)
 		m.cursor = clamp(m.cursor, 0, max(0, len(m.lines)-1))
 		m.offset = clamp(m.offset, 0, max(0, len(m.lines)-m.visibleLines()))
 		m.statusErr = false
@@ -263,6 +270,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.wrap {
 				m.hOffset = 0
 			}
+			m = setCursor(m, m.cursor)
+		case "I":
+			m.ignoreWS = !m.ignoreWS
+			processed := m.rawLines
+			if m.ignoreWS {
+				processed = applyIgnoreWS(m.rawLines)
+			}
+			m.lines = foldLines(processed, m.context)
+			m.diffBlocks = countDiffBlocks(processed)
 			m = setCursor(m, m.cursor)
 		case "]", "[":
 			m.pendingKey = msg.String()
@@ -491,6 +507,9 @@ func (m model) View() string {
 	if total > 0 {
 		pct := min((m.offset+visible)*100/total, 100)
 		scrollInfo += fmt.Sprintf("  %d/%d (%d%%)", m.offset+1, total, pct)
+	}
+	if m.ignoreWS {
+		scrollInfo += "  [-W]"
 	}
 	if m.wrap {
 		scrollInfo += "  [wrap]"
@@ -1234,6 +1253,7 @@ func allHelpItems(editable bool) []string {
 		"←→/h/l: 横スクロール",
 		"0: 横リセット",
 		"w: 折り返しトグル",
+		"I: 空白無視トグル",
 		"n/N: 次/前の変更",
 		"]f/[f: 次/前のファイル",
 		"g/G: 先頭/末尾",
@@ -1275,6 +1295,21 @@ func wrapHelpItems(items []string, width int) []string {
 		lines = append(lines, cur)
 	}
 	return lines
+}
+
+func collapseWS(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func applyIgnoreWS(lines []diffLine) []diffLine {
+	result := make([]diffLine, len(lines))
+	copy(result, lines)
+	for i, dl := range result {
+		if dl.kind == kindChanged && collapseWS(dl.left) == collapseWS(dl.right) {
+			result[i].kind = kindEqual
+		}
+	}
+	return result
 }
 
 func findSearchMatches(lines []diffLine, query string) []int {
@@ -1451,6 +1486,7 @@ func main() {
 
 	folded := foldLines(diffLines, defaultContext)
 	m := model{
+		rawLines:   diffLines,
 		lines:      folded,
 		leftFile:   leftFile,
 		rightFile:  rightFile,
