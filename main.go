@@ -124,6 +124,36 @@ func (m model) visibleLines() int {
 	return m.height - 2 - m.footerHeight()
 }
 
+// lastVisibleLine はm.offsetから表示が始まる場合に、画面内に収まる最後のdiff行インデックスを返す。
+// wrapモード時は各diff行が複数スクリーン行を消費するため実際の行数を計算する。
+func (m model) lastVisibleLine() int {
+	screenRows := m.visibleLines()
+	if !m.wrap {
+		return min(m.offset+screenRows-1, len(m.lines)-1)
+	}
+	contentW := (m.width-1)/2 - 5
+	rows := 0
+	for i := m.offset; i < len(m.lines); i++ {
+		dl := m.lines[i]
+		var n int
+		if dl.kind == kindFileHeader || dl.kind == kindCollapsed {
+			n = 1
+		} else {
+			lc := wrapText(dl.left, contentW)
+			rc := wrapText(dl.right, contentW)
+			n = max(len(lc), len(rc))
+			if n < 1 {
+				n = 1
+			}
+		}
+		rows += n
+		if rows >= screenRows {
+			return i
+		}
+	}
+	return len(m.lines) - 1
+}
+
 func (m model) Init() tea.Cmd {
 	return nil
 }
@@ -269,6 +299,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.wrap = !m.wrap
 			if m.wrap {
 				m.hOffset = 0
+			}
+			// ビュー位置は維持し、カーソルが画面外なら最終可視行に寄せる
+			last := m.lastVisibleLine()
+			if m.cursor > last {
+				m.cursor = last
 			}
 			m = setCursor(m, m.cursor)
 		case "I":
@@ -1188,13 +1223,53 @@ func wrapText(text string, width int) []string {
 	if text == "" {
 		return []string{""}
 	}
-	var chunks []string
 	runes := []rune(text)
-	for len(runes) > 0 {
+
+	// 先頭インデント（スペース・タブ）を検出し、継続行に付けるため幅を計算
+	// タブはlipglossと同じ4スペース展開を想定
+	leadN := 0
+	leadW := 0
+	for _, r := range runes {
+		if r != ' ' && r != '\t' {
+			break
+		}
+		leadN++
+		if r == '\t' {
+			leadW += 4 - (leadW % 4)
+		} else {
+			leadW++
+		}
+	}
+	lead := string(runes[:leadN])
+	contW := width - leadW
+	if contW < 4 {
+		// インデントが深すぎる場合はインデント保持しない
+		lead = ""
+		contW = width
+	}
+
+	var chunks []string
+	remaining := runes
+	isFirst := true
+	for len(remaining) > 0 {
+		lineW := width
+		if !isFirst {
+			lineW = contW
+		}
 		col, i := 0, 0
-		for i < len(runes) {
-			cw := runewidth.RuneWidth(runes[i])
-			if col+cw > width {
+		for i < len(remaining) {
+			var cw int
+			if remaining[i] == '\t' {
+				// タブ幅はカラム位置依存（先頭インデント分を考慮）
+				base := leadW
+				if isFirst {
+					base = 0
+				}
+				cw = 4 - ((col + base) % 4)
+			} else {
+				cw = runewidth.RuneWidth(remaining[i])
+			}
+			if col+cw > lineW {
 				break
 			}
 			col += cw
@@ -1203,10 +1278,34 @@ func wrapText(text string, width int) []string {
 		if i == 0 {
 			i = 1
 		}
-		chunks = append(chunks, string(runes[:i]))
-		runes = runes[i:]
+		prefix := ""
+		if !isFirst {
+			prefix = lead
+		}
+		chunks = append(chunks, prefix+string(remaining[:i]))
+		remaining = remaining[i:]
+		isFirst = false
 	}
 	return chunks
+}
+
+func expandTabs(s string) string {
+	if !strings.ContainsRune(s, '\t') {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	for _, r := range s {
+		if r == '\t' {
+			spaces := 4 - (col % 4)
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+		} else {
+			b.WriteRune(r)
+			col += runewidth.RuneWidth(r)
+		}
+	}
+	return b.String()
 }
 
 func hscroll(s string, offset, w int) string {
@@ -1220,7 +1319,7 @@ func hscroll(s string, offset, w int) string {
 	start := 0
 	for start < len(runes) {
 		cw := runewidth.RuneWidth(runes[start])
-		if col+cw > offset {
+		if col+cw > offset || col >= offset {
 			break
 		}
 		col += cw
