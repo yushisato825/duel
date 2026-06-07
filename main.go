@@ -306,9 +306,10 @@ func (m model) View() string {
 	contentW := panelW - lineNumW - 1
 
 	// ヘッダー
-	diffInfo := fmt.Sprintf(" %d differences ", m.diffBlocks)
+	added, removed, changed := computeStats(m.lines)
+	diffInfo := fmt.Sprintf(" +%d -%d ~%d  %d hunks ", added, removed, changed, m.diffBlocks)
 	leftHeader := headerStyle.Width(panelW).Render(" " + m.leftFile)
-	rightHeaderText := m.rightFile + strings.Repeat(" ", max(0, panelW-len(m.rightFile)-len(diffInfo)-1)) + diffInfo
+	rightHeaderText := m.rightFile + strings.Repeat(" ", max(0, panelW-lipgloss.Width(m.rightFile)-lipgloss.Width(diffInfo)-1)) + diffInfo
 	rightHeader := headerStyle.Width(panelW).Render(" " + rightHeaderText)
 	header := lipgloss.JoinHorizontal(lipgloss.Top, leftHeader, dividerStyle.Render("┃"), rightHeader)
 
@@ -1300,6 +1301,31 @@ func currentHunkNum(lines []diffLine, cursor int) int {
 		}
 	}
 	return count
+}
+
+func computeStats(lines []diffLine) (added, removed, changed int) {
+	for _, dl := range lines {
+		switch dl.kind {
+		case kindAdded:
+			added++
+		case kindRemoved:
+			removed++
+		case kindChanged:
+			changed++
+		case kindCollapsed:
+			for _, cl := range dl.collapsedLines {
+				switch cl.kind {
+				case kindAdded:
+					added++
+				case kindRemoved:
+					removed++
+				case kindChanged:
+					changed++
+				}
+			}
+		}
+	}
+	return
 }
 
 func countDiffBlocks(lines []diffLine) int {
