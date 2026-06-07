@@ -2,7 +2,7 @@
 
 ターミナルで動くサイドバイサイドのdiffビューア。
 
-![demo](demo.gif)
+![demo](demo/demo.gif)
 
 ## インストール
 
