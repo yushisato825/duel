@@ -57,7 +57,7 @@ const (
 	kindCollapsed           // 折りたたまれた等号行群
 )
 
-const diffContext = 3 // 差分前後に表示するコンテキスト行数
+const defaultContext = 3 // 差分前後に表示するコンテキスト行数のデフォルト値
 
 type diffLine struct {
 	left           string
@@ -93,14 +93,23 @@ type model struct {
 	status     string // ステータスメッセージ
 	statusErr  bool
 	cursor        int
+	context       int
+	showHelp      bool
 	searching     bool
 	searchQuery   string
 	searchMatches []int
 	searchIdx     int
 }
 
+func (m model) footerHeight() int {
+	if m.searching || !m.showHelp || m.width == 0 {
+		return 1
+	}
+	return len(wrapHelpItems(allHelpItems(m.editable), m.width))
+}
+
 func (m model) visibleLines() int {
-	return m.height - 3
+	return m.height - 2 - m.footerHeight()
 }
 
 func (m model) Init() tea.Cmd {
@@ -114,7 +123,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case diffUpdatedMsg:
-		m.lines = foldLines(msg.lines, diffContext)
+		m.lines = foldLines(msg.lines, m.context)
 		m.diffBlocks = msg.diffBlocks
 		m.cursor = clamp(m.cursor, 0, max(0, len(m.lines)-1))
 		m.offset = clamp(m.offset, 0, max(0, len(m.lines)-m.visibleLines()))
@@ -140,6 +149,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchQuery = ""
 				m.searchMatches = nil
 				m.searchIdx = 0
+				m = setCursor(m, m.cursor)
 			case "backspace", "ctrl+h":
 				if len(m.searchQuery) > 0 {
 					runes := []rune(m.searchQuery)
@@ -203,6 +213,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			m.searchMatches = nil
 			m.searchIdx = 0
+		case "?":
+			m.showHelp = !m.showHelp
+			m = setCursor(m, m.cursor)
 		case "e":
 			m.lines = expandCollapsed(m.lines, m.cursor)
 			m = setCursor(m, m.cursor)
@@ -210,7 +223,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lines = expandAll(m.lines)
 			m = setCursor(m, m.cursor)
 		case "C":
-			m.lines = foldLines(expandAll(m.lines), diffContext)
+			m.lines = foldLines(expandAll(m.lines), m.context)
+			m = setCursor(m, m.cursor)
+		case "+":
+			m.context++
+			m.lines = foldLines(expandAll(m.lines), m.context)
+			m = setCursor(m, m.cursor)
+		case "-":
+			if m.context > 0 {
+				m.context--
+			}
+			m.lines = foldLines(expandAll(m.lines), m.context)
 			m = setCursor(m, m.cursor)
 		case ">":
 			if m.editable {
@@ -370,7 +393,7 @@ func (m model) View() string {
 	scrollInfo := ""
 	if m.diffBlocks > 0 {
 		hunkNum := currentHunkNum(m.lines, m.cursor)
-		scrollInfo = fmt.Sprintf(" hunk %d/%d", hunkNum, m.diffBlocks)
+		scrollInfo = fmt.Sprintf(" hunk %d/%d  ctx:%d", hunkNum, m.diffBlocks, m.context)
 	}
 	if total > 0 {
 		pct := min((m.offset+visible)*100/total, 100)
@@ -397,16 +420,23 @@ func (m model) View() string {
 			content += searchBarStyle.Render(strings.Repeat(" ", pad))
 		}
 		helpText = content
-	} else {
-		editHelp := ""
-		if m.editable {
-			editHelp = "  >/<: 取り込み"
+	} else if m.showHelp {
+		items := wrapHelpItems(allHelpItems(m.editable), m.width)
+		var rendered []string
+		for i, line := range items {
+			s := helpStyle.Render(line)
+			if i == len(items)-1 {
+				s += scrollStyle.Render(scrollInfo)
+			}
+			rendered = append(rendered, s)
 		}
+		helpText = strings.Join(rendered, "\n")
+	} else {
 		nHelp := "n/N: 変更箇所"
 		if len(m.searchMatches) > 0 {
 			nHelp = "n/N: マッチ"
 		}
-		helpText = helpStyle.Render("↑↓/k/j: 縦  ←→/h/l: 横  "+nHelp+"  /: 検索  g/G: 先頭/末尾  e/E/C: 展開"+editHelp+"  q: 終了") +
+		helpText = helpStyle.Render(nHelp+"  /: 検索  ?: ヘルプ  q: 終了") +
 			scrollStyle.Render(scrollInfo)
 		if m.status != "" {
 			rendered := statusOkStyle.Render(m.status)
@@ -1022,6 +1052,53 @@ func isContextKind(k lineKind) bool {
 	return k == kindEqual || k == kindFileHeader || k == kindCollapsed
 }
 
+func allHelpItems(editable bool) []string {
+	items := []string{
+		"↑↓/j/k: 縦スクロール",
+		"←→/h/l: 横スクロール",
+		"0: 横リセット",
+		"n/N: 次/前の変更",
+		"g/G: 先頭/末尾",
+		"/: 検索",
+		"e: 折りたたみ展開",
+		"E: 全展開",
+		"C: 全折りたたみ",
+		"+/-: コンテキスト行数",
+		"?: ヘルプを閉じる",
+		"q: 終了",
+	}
+	if editable {
+		items = append(items, ">: 左→右に取り込み", "<: 右→左に取り込み")
+	}
+	return items
+}
+
+func wrapHelpItems(items []string, width int) []string {
+	const sep = "  "
+	sepW := runewidth.StringWidth(sep)
+	var lines []string
+	cur := ""
+	curW := 0
+	for _, item := range items {
+		itemW := runewidth.StringWidth(item)
+		if cur == "" {
+			cur = item
+			curW = itemW
+		} else if curW+sepW+itemW <= width {
+			cur += sep + item
+			curW += sepW + itemW
+		} else {
+			lines = append(lines, cur)
+			cur = item
+			curW = itemW
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
 func findSearchMatches(lines []diffLine, query string) []int {
 	if query == "" {
 		return nil
@@ -1151,13 +1228,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	folded := foldLines(diffLines, diffContext)
+	folded := foldLines(diffLines, defaultContext)
 	m := model{
 		lines:      folded,
 		leftFile:   leftFile,
 		rightFile:  rightFile,
 		diffBlocks: countDiffBlocks(diffLines),
 		editable:   editable,
+		context:    defaultContext,
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
