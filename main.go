@@ -95,6 +95,7 @@ type model struct {
 	cursor        int
 	context       int
 	showHelp      bool
+	pendingKey    string
 	searching     bool
 	searchQuery   string
 	searchMatches []int
@@ -172,6 +173,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.pendingKey != "" {
+			prev := m.pendingKey
+			m.pendingKey = ""
+			switch prev + msg.String() {
+			case "]f":
+				m = setCursor(m, nextFileHeader(m.lines, m.cursor))
+			case "[f":
+				m = setCursor(m, prevFileHeader(m.lines, m.cursor))
+			}
+			return m, nil
+		}
 		m.status = "" // キー入力でステータスをクリア
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -213,6 +225,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			m.searchMatches = nil
 			m.searchIdx = 0
+		case "]", "[":
+			m.pendingKey = msg.String()
+			return m, nil
 		case "?":
 			m.showHelp = !m.showHelp
 			m = setCursor(m, m.cursor)
@@ -1058,6 +1073,7 @@ func allHelpItems(editable bool) []string {
 		"←→/h/l: 横スクロール",
 		"0: 横リセット",
 		"n/N: 次/前の変更",
+		"]f/[f: 次/前のファイル",
 		"g/G: 先頭/末尾",
 		"/: 検索",
 		"e: 折りたたみ展開",
@@ -1175,6 +1191,24 @@ func countDiffBlocks(lines []diffLine) int {
 		}
 	}
 	return count
+}
+
+func nextFileHeader(lines []diffLine, from int) int {
+	for i := from + 1; i < len(lines); i++ {
+		if lines[i].kind == kindFileHeader {
+			return i
+		}
+	}
+	return from
+}
+
+func prevFileHeader(lines []diffLine, from int) int {
+	for i := from - 1; i >= 0; i-- {
+		if lines[i].kind == kindFileHeader {
+			return i
+		}
+	}
+	return from
 }
 
 func nextChange(lines []diffLine, from int) int {
