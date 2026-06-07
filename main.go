@@ -251,6 +251,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m = setCursor(m, nextFileHeader(m.lines, m.cursor))
 			case "[f":
 				m = setCursor(m, prevFileHeader(m.lines, m.cursor))
+			case "]c":
+				m = setCursor(m, nextHunk(m.lines, m.cursor))
+			case "[c":
+				m = setCursor(m, prevHunk(m.lines, m.cursor))
 			}
 			return m, nil
 		}
@@ -1353,7 +1357,8 @@ func allHelpItems(editable bool) []string {
 		"0: 横リセット",
 		"w: 折り返しトグル",
 		"I: 空白無視トグル",
-		"n/N: 次/前の変更",
+		"n/N: 次/前の変更行",
+		"]c/[c: 次/前のハンク",
 		"]f/[f: 次/前のファイル",
 		"g/G: 先頭/末尾",
 		"/: 検索",
@@ -1530,6 +1535,47 @@ func prevFileHeader(lines []diffLine, from int) int {
 		}
 	}
 	return from
+}
+
+func nextHunk(lines []diffLine, from int) int {
+	i := from
+	// 現在のハンク（変更ブロック）を抜ける
+	for i < len(lines) && !isContextKind(lines[i].kind) {
+		i++
+	}
+	// コンテキスト行をスキップして次のハンクへ
+	for i < len(lines) && isContextKind(lines[i].kind) {
+		i++
+	}
+	if i >= len(lines) {
+		return from
+	}
+	// ブロック先頭に移動
+	for i > 0 && !isContextKind(lines[i-1].kind) {
+		i--
+	}
+	return i
+}
+
+func prevHunk(lines []diffLine, from int) int {
+	i := from
+	// 現在のハンクの先頭まで戻る
+	for i > 0 && !isContextKind(lines[i-1].kind) {
+		i--
+	}
+	// 一つ前のコンテキスト行をスキップ
+	i--
+	for i >= 0 && isContextKind(lines[i].kind) {
+		i--
+	}
+	if i < 0 {
+		return from
+	}
+	// ブロック先頭に移動
+	for i > 0 && !isContextKind(lines[i-1].kind) {
+		i--
+	}
+	return i
 }
 
 func nextChange(lines []diffLine, from int) int {
