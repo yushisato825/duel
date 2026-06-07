@@ -77,6 +77,7 @@ type diffUpdatedMsg struct {
 	leftBackup  []string
 	rightBackup []string
 	isUndo      bool
+	status      string
 }
 type statusMsg struct {
 	text  string
@@ -145,7 +146,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.leftBackup = nil
 			m.rightBackup = nil
 		} else {
-			m.status = "適用しました"
+			if msg.status != "" {
+				m.status = msg.status
+			} else {
+				m.status = "適用しました"
+			}
 			if msg.hasBackup {
 				m.leftBackup = msg.leftBackup
 				m.rightBackup = msg.rightBackup
@@ -284,6 +289,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.lines = foldLines(expandAll(m.lines), m.context)
 			m = setCursor(m, m.cursor)
+		case "r":
+			if m.editable {
+				return m, reloadDiff(m)
+			}
 		case "u":
 			if m.editable && m.canUndo {
 				return m, undoChange(m)
@@ -650,6 +659,25 @@ func applyChange(m model, dir int) tea.Cmd {
 			hasBackup:   true,
 			leftBackup:  leftBefore,
 			rightBackup: rightBefore,
+		}
+	}
+}
+
+func reloadDiff(m model) tea.Cmd {
+	return func() tea.Msg {
+		leftLines, err := readLines(m.leftFile)
+		if err != nil {
+			return statusMsg{err.Error(), true}
+		}
+		rightLines, err := readLines(m.rightFile)
+		if err != nil {
+			return statusMsg{err.Error(), true}
+		}
+		newLines := computeDiff(leftLines, rightLines)
+		return diffUpdatedMsg{
+			lines:      newLines,
+			diffBlocks: countDiffBlocks(newLines),
+			status:     "再読み込みしました",
 		}
 	}
 }
@@ -1218,7 +1246,7 @@ func allHelpItems(editable bool) []string {
 		"q: 終了",
 	}
 	if editable {
-		items = append(items, ">: 左→右に取り込み", "<: 右→左に取り込み", "u: 元に戻す")
+		items = append(items, ">: 左→右に取り込み", "<: 右→左に取り込み", "u: 元に戻す", "r: 再読み込み")
 	}
 	return items
 }
